@@ -72,7 +72,7 @@ def test_publish_official_and_evaluate(client):
             "screen_id": side["id"],
             "playlist_id": pl["id"],
             "window_id": win["id"],
-            "summary": "侧屏正式发布",
+            "summary": "侧屏正式发布 CHG-2026-9001",
         },
     )
     assert r.status_code == 200, r.text
@@ -102,7 +102,7 @@ def test_shadow_promote_path(client):
             "screen_id": target["id"],
             "playlist_id": pl["id"],
             "window_id": win["id"],
-            "summary": "走廊影子草案",
+            "summary": "走廊影子草案 CHG-2026-9002",
         },
     )
     assert sh.status_code == 200, sh.text

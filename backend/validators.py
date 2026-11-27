@@ -17,6 +17,24 @@ from models import (
 
 CODE_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 HM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+# 闸口 signboard-09：发布摘要必须包含变更单号（CHG-年-序号），并写入可检索字段。
+CHANGE_NO_RE = re.compile(r"CHG-\d{4}-\d{4,}")
+
+
+def extract_change_no(summary: str) -> str | None:
+    """从发布摘要抽取首个合规变更单号；无则 None。"""
+    if not summary:
+        return None
+    m = CHANGE_NO_RE.search(summary)
+    return m.group(0) if m else None
+
+
+def require_change_no(summary: str) -> str:
+    """发布闸口：摘要不含变更单号模式即拒。"""
+    change_no = extract_change_no(summary)
+    if not change_no:
+        raise HTTPException(400, "发布摘要须匹配变更单号正则 CHG-YYYY-序号（如 CHG-2026-0007）")
+    return change_no
 
 
 def require_code(code: str, label: str = "编码") -> str:

@@ -20,11 +20,19 @@ def write_audit(actor: str, action: str, payload: dict) -> None:
         conn.commit()
 
 
-def write_history(entity_kind: str, entity_id: int, action: str, detail: str, actor: str) -> None:
+def write_history(
+    entity_kind: str,
+    entity_id: int,
+    action: str,
+    detail: str,
+    actor: str,
+    change_no: str | None = None,
+) -> None:
+    """写变更历史；change_no 为可检索单号字段，与正式发布双写同源。"""
     with connect() as conn:
         conn.execute(
-            "INSERT INTO change_history(entity_kind,entity_id,action,detail,actor,created_at) VALUES(?,?,?,?,?,?)",
-            (entity_kind, entity_id, action, detail, actor, time.time()),
+            "INSERT INTO change_history(entity_kind,entity_id,action,detail,change_no,actor,created_at) VALUES(?,?,?,?,?,?,?)",
+            (entity_kind, entity_id, action, detail, change_no or "", actor, time.time()),
         )
         conn.commit()
 

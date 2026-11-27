@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from models import DOMAIN, PRODUCT_NAME, SKELETON, SUB_DIRECTION, USERS
+from validators import extract_change_no
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -24,7 +25,7 @@ PRODUCT_META = {
 
 def connect() -> sqlite3.Connection:
     DATA.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=3)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
@@ -104,6 +105,7 @@ CREATE TABLE IF NOT EXISTS publications(
   layout_id INTEGER REFERENCES layouts(id),
   version INTEGER NOT NULL,
   summary TEXT NOT NULL,
+  change_no TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   official INTEGER NOT NULL DEFAULT 1,
   published_at REAL,
@@ -117,6 +119,7 @@ CREATE TABLE IF NOT EXISTS publish_shadows(
   window_id INTEGER NOT NULL REFERENCES time_windows(id),
   layout_id INTEGER REFERENCES layouts(id),
   summary TEXT NOT NULL,
+  change_no TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   created_at REAL NOT NULL,
   created_by TEXT NOT NULL
@@ -166,6 +169,7 @@ CREATE TABLE IF NOT EXISTS change_history(
   entity_id INTEGER NOT NULL,
   action TEXT NOT NULL,
   detail TEXT NOT NULL,
+  change_no TEXT NOT NULL DEFAULT '',
   actor TEXT NOT NULL,
   created_at REAL NOT NULL
 );
@@ -174,6 +178,12 @@ CREATE TABLE IF NOT EXISTS write_locks(
   lock_key TEXT UNIQUE NOT NULL,
   holder TEXT NOT NULL,
   expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS change_no_gates(
+  change_no TEXT PRIMARY KEY,
+  publication_id INTEGER NOT NULL,
+  holder TEXT NOT NULL,
+  created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY,
@@ -273,7 +283,7 @@ def _seed(conn: sqlite3.Connection) -> None:
     layout_map = {r["code"]: r["id"] for r in conn.execute("SELECT id,code FROM layouts")}
     for pub in _load_json("publications.json"):
         conn.execute(
-            "INSERT INTO publications(screen_id,playlist_id,window_id,layout_id,version,summary,status,official,published_at,published_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO publications(screen_id,playlist_id,window_id,layout_id,version,summary,change_no,status,official,published_at,published_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (
                 screen_map[pub["screen_code"]],
                 pl_map[pub["playlist_code"]],
@@ -281,6 +291,7 @@ def _seed(conn: sqlite3.Connection) -> None:
                 layout_map.get(pub.get("layout_code")) if pub.get("layout_code") else None,
                 pub.get("version", 1),
                 pub["summary"],
+                pub.get("change_no") or extract_change_no(pub["summary"]) or "",
                 pub["status"],
                 1,
                 now,
@@ -289,15 +300,30 @@ def _seed(conn: sqlite3.Connection) -> None:
         )
     for h in _load_json("change_history.json"):
         conn.execute(
-            "INSERT INTO change_history(entity_kind,entity_id,action,detail,actor,created_at) VALUES(?,?,?,?,?,?)",
-            (h["entity_kind"], h["entity_id"], h["action"], h["detail"], h["actor"], now - h.get("age_hours", 1) * 3600),
+            "INSERT INTO change_history(entity_kind,entity_id,action,detail,change_no,actor,created_at) VALUES(?,?,?,?,?,?,?)",
+            (h["entity_kind"], h["entity_id"], h["action"], h["detail"], h.get("change_no") or extract_change_no(h["detail"]) or "", h["actor"], now - h.get("age_hours", 1) * 3600),
         )
+    conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """旧库平滑加列：change_no 可检索字段（signboard-09）。"""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(publications)").fetchall()}
+    if "change_no" not in have:
+        conn.execute("ALTER TABLE publications ADD COLUMN change_no TEXT NOT NULL DEFAULT ''")
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(publish_shadows)").fetchall()}
+    if "change_no" not in have:
+        conn.execute("ALTER TABLE publish_shadows ADD COLUMN change_no TEXT NOT NULL DEFAULT ''")
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(change_history)").fetchall()}
+    if "change_no" not in have:
+        conn.execute("ALTER TABLE change_history ADD COLUMN change_no TEXT NOT NULL DEFAULT ''")
     conn.commit()
 
 
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         _seed(conn)
 
 
